@@ -25,20 +25,30 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: 0.12 });
 document.querySelectorAll('.reveal').forEach(el => reduce ? el.classList.add('in') : io.observe(el));
 const nav = document.querySelector('.nav');
-if (!reduce) {
-  const els = [...document.querySelectorAll('[data-speed]')];
-  let ticking = false;
-  const update = () => {
-    const vh = innerHeight;
-    els.forEach(el => {
-      const r = el.parentElement.getBoundingClientRect();
-      if (r.bottom < -200 || r.top > vh + 200) return;
-      const off = (r.top + r.height / 2 - vh / 2) * parseFloat(el.dataset.speed);
-      el.style.transform = `translate3d(0,${off.toFixed(1)}px,0)`;
-    });
-    ticking = false;
-  };
-  addEventListener('scroll', () => { if (!ticking) { requestAnimationFrame(update); ticking = true; } }, { passive: true });
-  addEventListener('resize', update); update();
+const noPx = reduce || matchMedia('(max-width:767px), (pointer:coarse)').matches;
+const els = [...document.querySelectorAll('[data-speed]')];
+if (noPx) els.forEach(el => { el.style.transform = 'none'; el.style.willChange = 'auto'; });
+const items = noPx ? [] : els.map(el => ({ el, sp: parseFloat(el.dataset.speed) * 0.6, c: 0, cur: 0, vis: false }));
+const measure = () => { const y = scrollY; items.forEach(it => { const r = it.el.parentElement.getBoundingClientRect(); it.c = r.top + y + r.height / 2; }); };
+if (items.length) {
+  const vio = new IntersectionObserver(es => es.forEach(e => { items.find(i => i.el.parentElement === e.target).vis = e.isIntersecting; }), { rootMargin: '200px 0px' });
+  items.forEach(it => vio.observe(it.el.parentElement));
 }
-addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 20), { passive: true });
+let sy = scrollY, vh = innerHeight, run = false, navS = null;
+const frame = () => {
+  sy = scrollY; let moving = false;
+  const s = sy > 20; if (s !== navS) { nav.classList.toggle('scrolled', s); navS = s; }
+  for (const it of items) {
+    if (!it.vis) continue;
+    const t = (it.c - sy - vh / 2) * it.sp;
+    it.cur += (t - it.cur) * 0.18;
+    if (Math.abs(t - it.cur) < 0.1) it.cur = t; else moving = true;
+    it.el.style.transform = `translate3d(0,${it.cur.toFixed(1)}px,0)`;
+  }
+  run = moving; if (moving) requestAnimationFrame(frame);
+};
+const kick = () => { if (!run) { run = true; requestAnimationFrame(frame); } };
+addEventListener('scroll', kick, { passive: true });
+let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { vh = innerHeight; measure(); kick(); }, 150); });
+addEventListener('load', () => { measure(); kick(); });
+measure(); kick();
